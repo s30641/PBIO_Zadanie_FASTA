@@ -21,7 +21,6 @@ def validate_positive_int(prompt: str, min_val: int = 1, max_val: int = 100_000)
 def generate_sequence(length: int) -> str:
     """Zwraca losową sekwencję DNA o zadanej długości."""
     nucleotides = ['A', 'C', 'G', 'T']
-    # random.choices losuje ze zwracaniem, k określa długość
     return ''.join(random.choices(nucleotides, k=length))
 
 
@@ -50,69 +49,114 @@ def insert_name(sequence: str, name: str) -> str:
     """Wstawia imię w losową pozycję sekwencji. Imię zapisane małymi literami."""
     if not name:
         return sequence
-
-    # Losowanie indeksu, w który wstawimy imię
     insert_pos = random.randint(0, len(sequence))
     return sequence[:insert_pos] + name.lower() + sequence[insert_pos:]
 
 
 def format_fasta(seq_id: str, description: str, sequence: str, line_width: int = 80) -> str:
     """Zwraca sformatowany rekord FASTA jako string."""
-    # Budowa nagłówka
     header = f">{seq_id}"
     if description:
         header += f" {description}"
 
     lines = [header]
-    # Łamanie sekwencji na linie o stałej szerokości
     for i in range(0, len(sequence), line_width):
         lines.append(sequence[i:i + line_width])
 
     return "\n".join(lines)
 
 
+# --- FUNKCJONALNOŚCI DODATKOWE ---
+
+def transcribe_dna_to_rna(sequence: str) -> str:
+    """Dodatek 1: Przeprowadza transkrypcję in silico (zamiana T na U)."""
+    return sequence.replace('T', 'U')
+
+
+def get_complementary_sequence(sequence: str) -> str:
+    """Dodatek 2: Generuje nić komplementarną do zadanej sekwencji DNA."""
+    mapping = str.maketrans("ACGT", "TGCA")
+    return sequence.translate(mapping)
+
+
+def find_motif_positions(sequence: str, motif: str) -> list:
+    """Dodatek 3: Wyszukuje motyw i zwraca listę pozycji (indeksowanie od 1)."""
+    positions = []
+    index = sequence.find(motif)
+    while index != -1:
+        positions.append(index + 1)
+        index = sequence.find(motif, index + 1)
+    return positions
+
+
+def save_sliding_window_gc(sequence: str, window_size: int, filename: str):
+    """Dodatek 4: Oblicza GC-content w przesuwnym oknie i zapisuje wyniki do pliku CSV."""
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write("pozycja_startu,gc_content\n")
+        for i in range(len(sequence) - window_size + 1):
+            window = sequence[i:i + window_size]
+            gc_val = ((window.count('G') + window.count('C')) / window_size) * 100
+            f.write(f"{i + 1},{gc_val:.2f}\n")
+
+
 def main():
     """Główna funkcja programu integrująca wszystkie elementy."""
-    # 1. Pobieranie długości sekwencji z walidacją
+    # Pobieranie danych bazowych
     length = validate_positive_int("Podaj długość sekwencji: ")
 
-    # 2. Pobieranie ID z walidacją braku białych znaków
     while True:
         seq_id = input("Podaj ID sekwencji: ")
-        if " " in seq_id or "\t" in seq_id:
+        if any(c.isspace() for c in seq_id):
             print("Błąd: ID sekwencji nie może zawierać białych znaków.")
         elif not seq_id:
             print("Błąd: ID nie może być puste.")
         else:
             break
 
-    # 3. Pobieranie opcjonalnych danych
     description = input("Podaj opis sekwencji: ")
     name = input("Podaj imię: ")
 
-    # 4. Generowanie czystej biologicznie sekwencji i obliczanie statystyk
-    base_sequence = generate_sequence(length)
-    stats = calculate_stats(base_sequence)
+    # Pobieranie parametrów dla dodatków
+    user_motif = input("Podaj motyw do wyszukania (np. ATG): ").upper()
+    win_size = validate_positive_int("Podaj szerokość okna do analizy GC: ", max_val=length)
 
-    # 5. Wstawienie imienia (robimy to po statystykach, żeby imię nie zaburzyło wyników)
-    final_sequence = insert_name(base_sequence, name)
+    # Proces generowania
+    base_seq = generate_sequence(length)
+    stats = calculate_stats(base_seq)
+    final_dna = insert_name(base_seq, name)
 
-    # 6. Formatowanie do standardu FASTA
-    fasta_content = format_fasta(seq_id, description, final_sequence)
+    # 1. Zapis multi-FASTA (DNA, mRNA, Komplementarna)
+    fasta_filename = f"{seq_id}.fasta"
+    with open(fasta_filename, "w", encoding="utf-8") as f:
+        # Oryginalna sekwencja z imieniem
+        f.write(format_fasta(seq_id, description, final_dna) + "\n\n")
+        # Sekwencja mRNA (na bazie czystego DNA)
+        mrna = transcribe_dna_to_rna(base_seq)
+        f.write(format_fasta(f"{seq_id}_mRNA", "Transkrypcja in silico", mrna) + "\n\n")
+        # Sekwencja komplementarna
+        compl = get_complementary_sequence(base_seq)
+        f.write(format_fasta(f"{seq_id}_COMPL", "Nić komplementarna", compl))
 
-    # 7. Zapis do pliku
-    filename = f"{seq_id}.fasta"
-    with open(filename, "w", encoding="utf-8") as f:
-        f.write(fasta_content)
-
-    # 8. Wyświetlenie podsumowania na ekranie
-    print(f"\nSekwencja zapisana do pliku: {filename}\n")
+    # 2. Statystyki w konsoli
+    print(f"\nSekwencje zapisane do pliku: {fasta_filename}")
     print(f"Statystyki sekwencji (n={length}):")
-    print(f"  A: {stats['A']:.2f}%")
-    print(f"  C: {stats['C']:.2f}%")
-    print(f"  G: {stats['G']:.2f}%")
-    print(f"  T: {stats['T']:.2f}%")
+    for nt, val in stats.items():
+        if nt != "GC":
+            print(f"  {nt}: {val:.2f}%")
     print(f"  GC-content: {stats['GC']:.2f}%")
+
+    # 3. Wyniki wyszukiwania motywu
+    if user_motif:
+        hits = find_motif_positions(base_seq, user_motif)
+        if hits:
+            print(f"Motyw '{user_motif}' znaleziony na pozycjach: {hits}")
+        else:
+            print(f"Nie znaleziono motywu '{user_motif}'.")
+
+    # 4. Analiza okna przesuwnego
+    csv_name = f"{seq_id}_gc_analysis.csv"
+    save_sliding_window_gc(base_seq, win_size, csv_name)
+    print(f"Analiza okna GC została zapisana do pliku: {csv_name}")
 
 
 if __name__ == "__main__":
